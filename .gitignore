@@ -1,0 +1,10 @@
+# Ignorar el ejecutable
+flcarve
+
+# Ignorar ejecutables por defecto de GCC
+*.out
+a.out
+
+# Ignorar archivos objeto intermedios de C
+*.o
+
