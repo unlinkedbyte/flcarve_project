@@ -82,10 +82,9 @@ int main (int argc, char *argv[]) {
 	// El bucle lee bloques de 4096 elementos, de 1 byte cada uno
 	while ((bytes_read = fread(buffer, 1, sizeof(buffer), disk_image)) > 0) {
 		
-		// Dentro de este while, lo primero que evaluamos es el estado actual: 
-		if (carving == 1) {
-			// Estamos en el modo extracción.
-			// Guardamos de forma consecutiva el bloque actual en el archivo recuperado
+		// Dentro de este while, lo primero que evaluamos es el estado actual
+        // Si ya estábamos en modo extracción de un bloque anterior, volcamos el búfer completo al archivo de salida
+		if (carving == 1 && output_file != NULL) {
 			fwrite(buffer, 1, bytes_read, output_file);
 		}
 
@@ -99,7 +98,10 @@ int main (int argc, char *argv[]) {
 				// Por lo tanto, la firma empieza exactamente en (global_offset -1)
 				printf("[+] Gzip signature found exactly on the block boundary!\n");
 				printf("	-> Absolute disk offset: %zu (0x%zX)\n", global_offset - 1, global_offset - 1);
-			}
+			
+                // ***Aqui iría una una lógica similar para cerrar el archivo anterior 
+                // y abrir el nuevo recovered_log_x.gz
+            }
 		}
 
 		first_iteration = 0; // Ya pasamos la primera iteración, "apagamos el interruptor"
@@ -110,37 +112,52 @@ int main (int argc, char *argv[]) {
 		// Restamos 1 porque dentro comprobamos '1' e 'i+1'. Si estuviéramos en el último byte,
 		// 'i+1' se saldría del búfer
 		for (size_t i = 0; i < bytes_read - 1; i++) {
-			
-			// Si el byte actual es 0x1F y el siguiente es 0x8B lo hemos encontrado
-			// (Aunque hara falta hacer mas comprobaciones para evitar una 
-			// posible coincidencia por probabilidad en discos duros grandes,
-            // teniendo que comprobar el byte 3 qu es el método de compresión y
-            // el byte 4 que serían las flags (FNAME por ejemplo)).
-			if (buffer[i] == 0x1F && buffer[i+1] == 0x8B) {
-				// Sumamos el global_offset (bytes de bloques pasados) + i (posicion actual en este bloque)
-				size_t absolute_address = global_offset + i;
-				carving = 1;
-				file_count++;
+          
+          // Si el byte actual es 0x1F y el siguiente es 0x8B lo hemos encontrado
+          // (Aunque hara falta hacer mas comprobaciones para evitar una 
+          // posible coincidencia por probabilidad en discos duros grandes,
+          // teniendo que comprobar el byte 3 qu es el método de compresión y
+          // el byte 4 que serían las flags (FNAME por ejemplo)).
+          if (buffer[i] == 0x1F && buffer[i+1] == 0x8B) {
+            
 
-				// Ahora abrimos el archivo de salida en modo escritura binaria.
-				output_file = fopen("recovered_file.gz", "wb"); // (veremos luego como automatizarlo, por el momento tiene un nombre fijo temporalmente). 
-				
-				// Ponemos un control de seguridad: Si el sistema no nos deja
-				// crear el archivo, abortamos
-				if (output_file == NULL) {
-					fprintf(stderr, "[-] Error: cannot create recovery file.\n");
-					return EXIT_FAILURE;
-				}
-
-				size_t bytes_to_save = bytes_read -i;
-				fwrite(&buffer[i], 1, bytes_to_save, output_file);
+            // Si estábamos extrayendo un archivo antes, lo cerramos para no dejar descriptores abiertos
+            if (carving == 1 && output_file != NULL) {
+              fclose(output_file);
+              printf("[+] Previous file closed successfully to prevent data mixing.\n");
+            }
+            
+            // Activamos el estado de extracción e incrementamos el contador
+            carving = 1;
+            file_count++;
+            
+            // Creamos un nombre de archivo dinámico basado en el contador
+            char filename[64]; // Es un array para almacenar el texto "recovered_log_x.gz"
+            snprintf(filename, sizeof(filename), "recovered_log_%zu.gz", file_count);
 
 
-				printf("[+] Gzip signature detected in block %zu (buffer index: %zu).\n", block_count, i);
-				printf("	-> Absolute disk offset: %zu (0x%zX)\n", absolute_address, absolute_address);
-				
+            // Ahora abrimos el archivo de salida en modo escritura binaria.
+            output_file = fopen(filename, "wb");  
+            
+            // Ponemos un control de seguridad: Si el sistema no nos deja
+            // crear el archivo, abortamos
+            if (output_file == NULL) {
+                fprintf(stderr, "[-] Error: cannot create recovery file %s.\n", filename);
+                return EXIT_FAILURE;
+            }
+            
+            // Calculamos la dirección absoluta en el disco crudo
+            size_t absolute_address = global_offset + i;
 
-			}
+            // Escribimos desde la posición de la firma (i) hasta el final de este búfer actual  
+            size_t bytes_to_save = bytes_read -i;
+            fwrite(&buffer[i], 1, bytes_to_save, output_file);
+
+            printf("[+] Gzip signature detected in block %zu (buffer index: %zu).\n", block_count, i);
+            printf("	-> Absolute disk offset: %zu (0x%zX)\n", absolute_address, absolute_address);
+            printf("    -> Extracting data into target stream: %s\n", filename);
+
+          }
 		}
 
 		// Antes de que termine el while y se destruya el búfer actual para leer el siguiente, 
