@@ -1,6 +1,6 @@
 **flcarve-project** - In development
 
-
+**(Branch: [experiment-entropy](https://github.com/unlinkedbyte/flcarve_project/tree/experiment-entropy))**
 
 
 I thought about uploading the project when it was finished, but I have discovered that it is an excellent practice among programmers or developers to upload projects and update them frequently. 
@@ -30,7 +30,7 @@ Finally, a less elegant option although it is viable (but I consider it dangerou
 
 Latest update: 
 
-I have been thinking about the project and documenting myself. I discovered (among other things) that you can embed the zlib library into the binary when you compile it with the static flag (gcc -static main.c -lz -o flcarve), which solved the problem raised in point 2. It is also the industry standard, if I am not mistaken. This has triggered two ideas: we are going to build the project using option 1 as the base, and I will create a second branch inside the repository for option 2, named "experiment-entropy". There, for pure fun and without the pressure of it having to be perfect, I will try to program Shannon's entropy algorithm. With both projects done, we will see which one is more viable or efficient.
+I have been thinking about the project and documenting myself. I discovered (among other things) that you can embed the zlib library into the binary when you compile it with the static flag (gcc -static main.c -lz -o flcarve), which solved the problem raised in point 2. It is also the industry standard, if I am not mistaken. This has triggered two ideas: we are going to build the project using option 1 as the base, and I will create a second branch inside the repository for option 2, named "[experiment-entropy](https://github.com/unlinkedbyte/flcarve_project/tree/experiment-entropy)". There, for pure fun and without the pressure of it having to be perfect, I will try to program Shannon's entropy algorithm. With both projects done, we will see which one is more viable or efficient.
 
 In this second option, the check would not rely solely and exclusively on entropy (just in case, by pure randomness, the level within the 0 to 8 scale drops as well, although it shouldn't). If we know the maximum size of a log before being compressed (50MB, 100MB, or whatever it is), we will set that maximum to stop the data extraction if we ever hit that point. In that step, we should simply use zcat or the corresponding tool on the recovered log.
 
