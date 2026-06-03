@@ -8,7 +8,7 @@ I thought about uploading the project when it was finished, but I have discovere
 Although I might feel a bit embarrassed in case something is not right or optimal, it will also allow me to continue working with the Git workflow.
 
 <details>
-<summary><b>Click here to see the latest approach</b></summary>
+<summary><b>Click here to see the last approach</b></summary>
 <br>
 At the point where we are, although we still need to implement the logic where if we find the gzip signature (the magic bytes) of 0x1F and 0x8B, we would still need to check the third and fourth byte, with the third being the compression method and the fourth byte would be the flags (like FNAME, if it has any comment...).
 
