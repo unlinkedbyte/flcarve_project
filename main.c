@@ -101,6 +101,8 @@ int main (int argc, char *argv[]) {
     
     // Reiniciamos en cada vuelta 
     write_start = 0; 
+    
+
 
     // *Bloque añadido
     // Frontera entre bloques
@@ -115,12 +117,76 @@ int main (int argc, char *argv[]) {
                                                             // z: le dice a la función print que tamaño del argumento corresponde a size_t (que cambia según la arquitectura del procesador. En sistemas de 64 bits suele ocupar 8 bytes).
                                                             // u: es de unsigned ya que las posiciones de memoria y los contadores de bytes nunca pueden ser negativos.
                                                             // Y zX nos indica con la X mayúscula que pinte las letras del hexadecimal en mayúscula (y que es hexadecimal como tal). 
+        
+        if (carving == 1 && output_file != NULL) {
+          fseek(output_file, -2, SEEK_END); // Los dos últimos bytes se han escrito físicamente 
+                                          // en el disco duro en la vuelta anterior del while.
+                                          // Con esto, lo que hacemos es retroceder dos bytes para
+                                          // recortar lo que se escribió al final del archivo 
+                                          // anterior. El sistema operativo moverá esa aguja hacia
+                                          // atrás y, al cerrar, el archivo quedará recortado. 
+          fclose(output_file);
+        // Ahora, tenemos que activar el interruptor de extracción e incrementar el contador de archivos
+        }
+
+        file_count++;
+        carving = 1;
+        // También debemos marcar el nuevo inicio de escritura antes de asegurar los bytes huérfanos,
+        // Lo que le indicamos en este caso es que el tercer byte de la firma (el 0x08), ha caído
+        // en el índice 0 de nuestro array 'buffer' actual. Como lo igualamos a 0, le decimos
+        // al programa que termine, escriba todo el buffer desde el byte 0 en adelante
+        write_start = 0;
+
+
+        // Después de haber retrocedido con fseek() y haberlo cerrado con fclose, tenemos el paso
+        // abierto para poder abrir el nuevo archivo con fopen y luego meter mano a los dos bytes
+        // que se habían quedado colgando (huérfanos). Pero como la creación de filename y el snprintf
+        // ocurren dentro del bucle for secundario, aqui no existe todavía. 
+        char filename[64];
+        snprintf(filename, sizeof(filename), "recovered_log_%zu.gz", file_count);
+
+        output_file = fopen(filename, "wb");
+        if (output_file == NULL) {
+          fprintf(stderr, "[-] Error: cannot create recovery file %s.\n", filename);
+          return EXIT_FAILURE;
+        }
+        fwrite(&penultimate_byte, 1, 1, output_file); // Corresponderia a 0x1F
+        fwrite(&last_byte, 1, 1, output_file);
+        /* Quiero apuntar algo. En C, cuando pasamos una  variable normal a una función 
+         * (como un número entero o un caracter), la función recibe una copia de ese valor. 
+         * Fwrite es una función de bajo nivel diseñada para el rendimiento. Su trabajo es coger datos
+         * de la RAM y empujarlos hacia el disco duro. Por eso no le pasamos un last_byte a secas 
+         * (que corresponderia al valor de last_byte), si no la dirección (que es donde esta ubicado
+         * en la memoria RAM). Con esa dirección, fwrite va a donde le has marcado, coge los
+         * bytes pedidos directamente del hardware y los transfiere al disco.
+         * last_byte sin el puntero haría que la función recibiera el número 139 (que en decimal
+         * es el 0x8B). 
+        
+
+*/
       }
 
 
       if (last_byte == 0x1F && buffer[0] == 0x8B && buffer[1] == 0x08) { // ** añadido la tercera firma, ahora hace falta añadir un bloque nuevo con una nueva variable donde
                                                                          // podamos guardar el penúltimo byte, que se plantean nuevos peligros 
-                  
+        if (carving == 1 && output_file != NULL) {           
+          fseek(output_file, -1, SEEK_END); // aplicando la última lógica programada hasta fwrite.
+          fclose(output_file);
+        }
+
+        file_count++;
+        carving = 1;
+        write_start = 0;
+        char filename[64];
+        snprintf(filename, sizeof(filename), "recovered_log_%zu.gz", file_count);
+        output_file = fopen(filename, "wb");
+        
+        if (output_file == NULL) {
+          fprintf(stderr, "[-] Error: cannot create a recovery file %s.\n", filename);
+          return EXIT_FAILURE;
+        }
+
+        fwrite(&last_byte, 1, 1, output_file);
 
         // El 0x1F estaba en el ultimo byte del bloque anterior.
         // Por lo tanto, la firma empieza exactamente en (global_offset -1)
@@ -141,10 +207,12 @@ int main (int argc, char *argv[]) {
     // 'i+1' se saldría del búfer
     // ***** Añadido: Como ahora tenemos que comprobar tambien el tercer byte, le tenemos que sumar dos para que el maximo valor de i sea 4093 y no 4094.
     // No queremos salirnos de la memoria. 
-    for (size_t i = 0; i < bytes_read - 2; i++) {
-          
+    for (size_t i = 0; i < bytes_read - 2; i++) { // Aquí el problema de que i < bytes_read -2 siempre sea 4094(4093) y nunca lleguemos a los dos bytes del final, por lo que hay que poner una nueva lógica
+      
+      
+  
       // Si el byte actual es 0x1F y el siguiente es 0x8B lo hemos encontrado
-      // (Aunque hara falta hacer mas comprobaciones para evitar una 
+      // (Aunque hará falta hacer más comprobaciones para evitar una 
       // posible coincidencia por probabilidad en discos duros grandes,
       // teniendo que comprobar el byte 3 que es el método de compresión y
       // el byte 4 que serían las flags (FNAME por ejemplo)).
@@ -193,6 +261,10 @@ int main (int argc, char *argv[]) {
 
       }
     }
+
+    // Bloque añadido: el for no necesita llegar al final. Él se encarga del centro del bloque, y 
+    // esta nueva lógica son los if de frontera que estan fuera y se encarga de los bytes que quedaron
+    // en los bordes
 
     if (carving == 1 && output_file != NULL) {
       fwrite(&buffer[write_start], 1, bytes_read - write_start, output_file);
