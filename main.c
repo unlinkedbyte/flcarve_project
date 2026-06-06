@@ -1,6 +1,17 @@
+/* Esta macro debe ir estrictamente en la línea 1, antes de cualquier #include.
+ * Al hacerlo, el preprocesador activa la configuración de 64 bits antes de que 
+ * se carguen las librerías del sistema. Esto garantiza que funciones como ftello() y el tipo off_t
+ * utilicen siempre cajas de 64 bits para soportar archivos gigantes, incluso si el programa se
+ * ejecuta en arquitecturas de 32 bits. La barra baja del principio es obligatoria e indica que es 
+ * una variable de control interna del sistema
+ */
+#define _FILE_OFFSET_BITS 64
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
 
 
 int main (int argc, char *argv[]) {
@@ -119,12 +130,42 @@ int main (int argc, char *argv[]) {
                                                             // Y zX nos indica con la X mayúscula que pinte las letras del hexadecimal en mayúscula (y que es hexadecimal como tal). 
         
         if (carving == 1 && output_file != NULL) {
-          fseek(output_file, -2, SEEK_END); // Los dos últimos bytes se han escrito físicamente 
-                                          // en el disco duro en la vuelta anterior del while.
-                                          // Con esto, lo que hacemos es retroceder dos bytes para
-                                          // recortar lo que se escribió al final del archivo 
-                                          // anterior. El sistema operativo moverá esa aguja hacia
-                                          // atrás y, al cerrar, el archivo quedará recortado. 
+          /* Antes de hacer fflush(), los datos estan en el 'Búfer de Usuario'. Es una zona de la RAM
+           * privada que pertenece al programa y que gestiona la librería estandar de C (glibc). 
+           * El kernel no sabe que esos bytes existen todavía. Cuando ejecutamos fflush(), el programa
+           * realiza una syscall. Los datos se copian de la zona privada del programa a la 
+           * Page Cache (caché de páginas). Esta es otra zona de la RAM, pero está gestionada 
+           * directamente por el kernel. Esto lo digo porque ftruncate() es una función nativa de
+           * linux que habla directamente al kernel. Por eso necesita que los datos
+           * ya estén en la Page Cache del kernel para saber que bytes tiene que recortar. Si se 
+           * quedaran en el bufer de usuario, no se podria aplicar el corte correctamente. 
+           */
+          fflush(output_file);
+          
+          /* ftell() es una función clásica de C. Tú le pasas un archivo y la función te devuelve
+           * la posición actual del cursor (cuántos bytes llevamos escritos). El problema de ftell()
+           * es que está programada para devolver un tipo de dato 'long', pero en muchos sistemas
+           * el long se queda corto (máximo 2GB en arquitecturas de 32 bits). 
+           * Si el archivo recuperado creciera más de esa cifra,
+           * ftell() se desbordaría y daría un dato falso. Por eso usamos ftello(), es la misma
+           * función (la o viene de offset) pero devuelve el tipo off_t (64 bits)
+           * El int normal ocupa 4 bytes. Al usar off_t, el sistema operativo adapta automáticamente
+           * el tamaño de la caja según tu arquitectura. En el linux moderno off_t ocupa 8 bytes.
+           * */
+          off_t file_size = ftello(output_file);
+
+          /* Con las notas y líneas de cóiigo anteriores, nos aseguramos que los bytes estén en 
+           * posesión del kernel. Cómo el kernel tiene ahora los bytes, podemos pasarle el ftello
+           * pasa saber cuando mide el archivo entero actualmente. El resultado lo guardamos en la 
+           * variable para poder usar ftruncate() de manera óptima. 
+           * ftruncate() es una syscall, que modifica físicamente el tamaño del archivo en el disco.
+           * Necesita el descriptor de archivo (igual que todas las syscalls, por eso le pasamos
+           * el fileno(), no maneja flujos (streams), que son de más alta abstracción. 
+           * Dejamos el archivo truncado para que no se guarden esos dos últimos bytes ni se queden
+           * huérfanos. 
+           *
+           */
+          ftruncate(fileno(output_file), file_size - 2);
           fclose(output_file);
         // Ahora, tenemos que activar el interruptor de extracción e incrementar el contador de archivos
         }
@@ -138,8 +179,8 @@ int main (int argc, char *argv[]) {
         write_start = 0;
 
 
-        // Después de haber retrocedido con fseek() y haberlo cerrado con fclose, tenemos el paso
-        // abierto para poder abrir el nuevo archivo con fopen y luego meter mano a los dos bytes
+        // tenemos el paso abierto para poder abrir el nuevo archivo con fopen 
+        // y luego meter mano a los dos bytes
         // que se habían quedado colgando (huérfanos). Pero como la creación de filename y el snprintf
         // ocurren dentro del bucle for secundario, aqui no existe todavía. 
         char filename[64];
@@ -155,12 +196,17 @@ int main (int argc, char *argv[]) {
         /* Quiero apuntar algo. En C, cuando pasamos una  variable normal a una función 
          * (como un número entero o un caracter), la función recibe una copia de ese valor. 
          * Fwrite es una función de bajo nivel diseñada para el rendimiento. Su trabajo es coger datos
-         * de la RAM y empujarlos hacia el disco duro. Por eso no le pasamos un last_byte a secas 
-         * (que corresponderia al valor de last_byte), si no la dirección (que es donde esta ubicado
-         * en la memoria RAM). Con esa dirección, fwrite va a donde le has marcado, coge los
-         * bytes pedidos directamente del hardware y los transfiere al disco.
+         * de la RAM de nuestro programa y moverlos al bufer interno de la libreria de C
+         * (otra zona de la RAM). Se quedan ahí acumulados en ese bufer para no saturar el disco
+         * duro con micro escrituras, delegando el volcado real al sistema operativo mediante
+         * funciones como fflush() o al cerrar el archivo. 
+         * Fwrite necesita obligatoriamente una dirección de memoria de la RAM. El & es el puntero
+         * que le pasamos para indicarle donde está esa dirección. 
+         * Con esa dirección, fwrite va a donde le has marcado, coge los bytes
+         * pedidos y los transfiere al bufer intermedio de la librería de C en la RAM, esperando
+         * a ser vaciado hacia el sistema operativo.
          * last_byte sin el puntero haría que la función recibiera el número 139 (que en decimal
-         * es el 0x8B). 
+         * es el 0x8B), lo cual haría que saltara a una dirección prohibida
         
 
 */
@@ -170,7 +216,9 @@ int main (int argc, char *argv[]) {
       if (last_byte == 0x1F && buffer[0] == 0x8B && buffer[1] == 0x08) { // ** añadido la tercera firma, ahora hace falta añadir un bloque nuevo con una nueva variable donde
                                                                          // podamos guardar el penúltimo byte, que se plantean nuevos peligros 
         if (carving == 1 && output_file != NULL) {           
-          fseek(output_file, -1, SEEK_END); // aplicando la última lógica programada hasta fwrite.
+          fflush(output_file);
+          off_t file_size = ftello(output_file);
+          ftruncate(fileno(output_file), file_size - 1); // Misma lógica que en aquel bloque anterior
           fclose(output_file);
         }
 
