@@ -381,7 +381,7 @@ int main (int argc, char *argv[]) {
       global_offset += bytes_read; // Sumamos los bytes que acabamos de procesar
       block_count++; // Avanzamos al siguiente bloque
     }
-
+  }
   printf("[+] Finished scanning the disk image. Total bytes scanned: %zu\n", global_offset);
 
   // Regla de oro en C: todo lo que se abre, se tiene que cerrar
